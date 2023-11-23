@@ -3,6 +3,7 @@ pragma solidity ^0.8.4;
 
 import "./NFT.sol";
 import "./Decentroz.sol";
+import "./UserDetails.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
@@ -17,6 +18,7 @@ contract Marketplace is ReentrancyGuard {
 
     address payable private owner;
     Decentroz public decentroz;
+    UserDetails public userDetails;
     uint256 private listingFee;
 
     struct MarketItem {
@@ -45,9 +47,10 @@ contract Marketplace is ReentrancyGuard {
         bool canceled
     );
 
-    constructor(address _decentroz) payable {
+    constructor(address _decentroz, address _userDetails) payable {
         owner = payable(msg.sender);
         decentroz = Decentroz(_decentroz);
+        userDetails = UserDetails(_userDetails);
     }
 
     function createMarketItem(
@@ -74,6 +77,7 @@ contract Marketplace is ReentrancyGuard {
             false,
             false
         );
+        updateUserDetails(msg.sender, false, true);
 
         IERC721(nftContractAddress).transferFrom(
             msg.sender,
@@ -111,6 +115,7 @@ contract Marketplace is ReentrancyGuard {
             msg.sender,
             tokenId
         );
+        updateUserDetails(msg.sender, false, true);
         marketItemIdToMarketItem[marketItemId].owner = payable(msg.sender);
         marketItemIdToMarketItem[marketItemId].canceled = true;
         _tokensCanceled.increment();
@@ -126,6 +131,7 @@ contract Marketplace is ReentrancyGuard {
             msg.value == price,
             "Please submit the asking price to continue"
         );
+        updateUserDetails(msg.sender, true, false);
         marketItemIdToMarketItem[marketItemId].owner = payable(msg.sender);
         marketItemIdToMarketItem[marketItemId].sold = true;
         marketItemIdToMarketItem[marketItemId].seller.transfer(msg.value);
@@ -152,7 +158,7 @@ contract Marketplace is ReentrancyGuard {
         MarketItem[] memory marketItems = new MarketItem[](availableItemsCount);
         uint256 currentIndex = 0;
         for (uint256 i = 0; i < itemsCount; i++) {
-            MarketItem memory item = marketItemIdToMarketItem[i + 1];
+            MarketItem memory item = marketItemIdToMarketItem[i];
             if (item.owner != address(0)) continue;
             marketItems[currentIndex] = item;
             currentIndex += 1;
@@ -242,5 +248,30 @@ contract Marketplace is ReentrancyGuard {
     ) private pure returns (bool) {
         return (keccak256(abi.encodePacked((a))) ==
             keccak256(abi.encodePacked((b))));
+    }
+
+    function updateUserDetails(
+        address user,
+        bool isBuyer,
+        bool isSeller
+    ) internal {
+        uint256 totalNFTs = userDetails.getTokenCount(user);
+
+        // Increment or decrement totalNFTs based on the role
+        if (isBuyer) {
+            unchecked {
+                totalNFTs += 1;
+            }
+        }
+        if (isSeller) {
+            // Ensure totalNFTs is greater than or equal to 1 before decrementing
+            require(totalNFTs >= 0, "Insufficient NFTs to decrement");
+            unchecked {
+                totalNFTs -= 1;
+            }
+        }
+
+        // Update user details in the registry
+        userDetails.updateTokencount(user, totalNFTs);
     }
 }

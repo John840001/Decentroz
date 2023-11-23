@@ -40,14 +40,15 @@ describe("1. Decentroz Contract Tests", function () {
     const transferAmount = 50;
     await expect(
       decentroz.mint(addr1.address, transferAmount),
-      await expect(decentroz.transferFrom(addr1.address, owner.address, transferAmount)
+      await expect(
+        decentroz.transferFrom(addr1.address, owner.address, transferAmount)
       ).to.be.revertedWith("ERC20: insufficient allowance")
-    )
+    );
 
     await decentroz.mint(owner.address, transferAmount);
     await decentroz.connect(owner).transfer(addr1.address, transferAmount);
     const addr1Balance = await decentroz.balanceOf(addr1.address);
-    expect(addr1Balance).to.equal(2*transferAmount);
+    expect(addr1Balance).to.equal(2 * transferAmount);
   });
 });
 
@@ -173,9 +174,12 @@ describe("3. Marketplace Contract Tests", function () {
     nft,
     Decentroz,
     decentroz,
+    UserDetails,
+    userDetails,
     owner,
     user1,
     user2;
+
   const listingFee = ethers.utils.parseEther("0.01");
 
   beforeEach(async function () {
@@ -186,6 +190,11 @@ describe("3. Marketplace Contract Tests", function () {
     decentroz = await Decentroz.deploy();
     await decentroz.deployed();
 
+    // Deploy the UserDetails contract
+    UserDetails = await ethers.getContractFactory("UserDetails");
+    userDetails = await UserDetails.deploy();
+    await userDetails.deployed();
+
     // Deploy NFT token
     NFT = await ethers.getContractFactory("NFT");
     nft = await NFT.deploy(decentroz.address);
@@ -193,10 +202,15 @@ describe("3. Marketplace Contract Tests", function () {
 
     // Deploy Marketplace
     Marketplace = await ethers.getContractFactory("Marketplace");
-    marketplace = await Marketplace.deploy(decentroz.address, {
-      value: listingFee,
-    });
+    marketplace = await Marketplace.deploy(
+      decentroz.address,
+      userDetails.address,
+      {
+        value: listingFee,
+      }
+    );
     await marketplace.deployed();
+    // console.log("Marketplace contract:", marketplace.address);
 
     // Mint Decentroz tokens for users
     await decentroz.mint(user1.address, ethers.utils.parseEther("1000"));
@@ -351,8 +365,9 @@ describe("3. Marketplace Contract Tests", function () {
 
     // Verify that both market items are available
     expect(availableMarketItems.length).to.equal(2);
-    expect(availableMarketItems[0].marketItemId).to.equal(1);
-    expect(availableMarketItems[1].marketItemId).to.equal(2);
+    // Note: Ensure that the comparison is done with BigNumber for numerical values
+    expect(availableMarketItems[0].marketItemId.toNumber()).to.equal(0);
+    expect(availableMarketItems[1].marketItemId.toNumber()).to.equal(1);
   });
 
   it("Test 6: Should fetch market items by seller address", async function () {
@@ -451,5 +466,90 @@ describe("3. Marketplace Contract Tests", function () {
     // Ensure the ownership of the NFT has changed to user2
     const newOwner = await nft.ownerOf(1);
     expect(newOwner).to.equal(user2.address);
+  });
+});
+
+describe("4. UserDetails Contract Tests", function () {
+  let UserDetails, userDetails, owner, addr1, addr2;
+
+  beforeEach(async function () {
+    UserDetails = await ethers.getContractFactory("UserDetails");
+    userDetails = await UserDetails.deploy();
+    await userDetails.deployed();
+
+    [owner, addr1, addr2] = await ethers.getSigners();
+  });
+
+  it("Test 1: Should register a new user", async function () {
+    await userDetails
+      .connect(addr1)
+      .registerUser("User1", "Description1", true, false);
+
+    const user = await userDetails.getUserDetails(addr1.address);
+    expect(user.name).to.equal("User1");
+    expect(user.description).to.equal("Description1");
+    expect(user.totalNFTs).to.equal(0);
+    expect(user.isBuyer).to.equal(true);
+    expect(user.isSeller).to.equal(false);
+  });
+
+  it("Test 2: Should update user details", async function () {
+    await userDetails
+      .connect(addr1)
+      .registerUser("User1", "Description1", true, false);
+    await userDetails
+      .connect(addr1)
+      .updateUserDetails("NewName", "NewDescription");
+
+    const user = await userDetails.getUserDetails(addr1.address);
+    expect(user.name).to.equal("NewName");
+    expect(user.description).to.equal("NewDescription");
+  });
+
+  it("Test 3: Should update user roles", async function () {
+    await userDetails
+      .connect(addr1)
+      .registerUser("User1", "Description1", true, false);
+    await userDetails.connect(addr1).updateRole(false, true);
+
+    const user = await userDetails.getUserDetails(addr1.address);
+    expect(user.isBuyer).to.equal(false);
+    expect(user.isSeller).to.equal(true);
+  });
+
+  it("Test 4: Should increment total NFTs", async function () {
+    await userDetails
+      .connect(addr1)
+      .registerUser("User1", "Description1", true, false);
+    await userDetails.connect(addr1).incrementTotalNFTs();
+
+    const user = await userDetails.getUserDetails(addr1.address);
+    expect(user.totalNFTs).to.equal(1);
+  });
+
+  it("Test 5: Should prevent registering the same user twice", async function () {
+    await userDetails.registerUser("User1", "Description1", true, false);
+
+    await expect(
+      userDetails.registerUser("User1", "Description1", true, false)
+    ).to.be.revertedWith("User already registered");
+  });
+
+  it("Test 6: Should prevent updating details for a non-registered user", async function () {
+    await expect(
+      userDetails.updateUserDetails("NewName", "NewDescription")
+    ).to.be.revertedWith("User not registered");
+  });
+
+  it("Test 7: Should prevent updating roles for a non-registered user", async function () {
+    await expect(userDetails.updateRole(true, false)).to.be.revertedWith(
+      "User not registered"
+    );
+  });
+
+  it("Test 8: Should prevent incrementing total NFTs for a non-registered user", async function () {
+    await expect(userDetails.incrementTotalNFTs()).to.be.revertedWith(
+      "User not registered"
+    );
   });
 });
